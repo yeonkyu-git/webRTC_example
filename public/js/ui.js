@@ -161,6 +161,38 @@ export const clearMessenger = () => {
   messageContainer.querySelectorAll('*').forEach((n) => n.remove());
 }
 
+// start recording 
+export const showRecordingPanel = () => {
+  const recordingButtons = document.getElementById('video_recording_buttons');
+  showElement(recordingButtons);
+
+  // hide start recording button if it is active
+  const startRecordingButton = document.getElementById('start_recording_button');
+  hideElement(startRecordingButton);
+};
+
+// reset recording 
+export const resetRecordingButtons = () => {
+  const startRecordingButton = document.getElementById('start_recording_button');
+  showElement(startRecordingButton);
+
+  const recordingButtons = document.getElementById('video_recording_buttons');
+  hideElement(recordingButtons);
+}
+
+export const switchRecordingButtons = (switchForResumeButton = false) => {
+  const resumeButton = document.getElementById('resume_recording_button');
+  const pauseButton = document.getElementById('pause_recording_button');
+
+  if (switchForResumeButton) {
+    hideElement(pauseButton);
+    showElement(resumeButton);
+  } else {
+    hideElement(resumeButton);
+    showElement(pauseButton);
+  };
+};
+
 
 // ui helper function 
 const enableDashboard = () => {
