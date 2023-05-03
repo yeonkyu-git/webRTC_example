@@ -5,6 +5,7 @@ import * as store from './store.js';
 
 let connectedUserDetails;
 let peerConnection;
+let dataChannel;
 
 const defaultContraints = {
   audio: true,
@@ -34,7 +35,25 @@ export const getLocalPreview = () => {
 const createPeerConnection = () => {
   peerConnection = new RTCPeerConnection(configuration); // 이때 STUN 서버에게 질의함
 
-  // 
+  dataChannel = peerConnection.createDataChannel('chat');
+
+  peerConnection.ondatachannel = (event) => {
+    const dataChannel = event.channel;
+
+    dataChannel.onopen = () => {
+      console.log('peer connection is ready to receive data channel messages');
+    }
+
+    // Message 받기 
+    dataChannel.onmessage = (event) => {
+      console.log('message came from data channel');
+      const message = JSON.parse(event.data);
+      ui.appendMessage(message);
+    }
+  }
+
+
+  // ICE_CANDIDATE 교환 
   peerConnection.onicecandidate = (event) => {
     console.log('getting ice candidates from stun server');
     if (event.candidate) {
@@ -73,6 +92,14 @@ const createPeerConnection = () => {
     }
   }
 };
+
+
+// DataChannel로 메시지 전달 (Chatting)
+export const sendMessageUsingDataChannel = (message) => {
+  const stringifiedMessage = JSON.stringify(message);
+  dataChannel.send(stringifiedMessage);
+}
+
 
 // 1. Caller가 Callee 에게 Chat 또는 Video 요청
 export const sendPreOffer = (callType, calleePersonalCode) => {

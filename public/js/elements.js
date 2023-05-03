@@ -124,3 +124,27 @@ export const getInfoDialog = (dialogTitle, dialogDescription) => {
 
   return dialog;
 }
+
+
+// 채팅 메시지 UI
+export const getLeftMessage = (message) => {
+  const messageContainer = document.createElement('div');
+  messageContainer.classList.add('message_left_container');
+  const messageParagraph = document.createElement('p');
+  messageParagraph.classList.add('message_left_paragraph');
+  messageParagraph.innerText = message;
+  messageContainer.appendChild(messageParagraph);
+
+  return messageContainer;
+}
+
+export const getRightMessage = (message) => {
+  const messageContainer = document.createElement('div');
+  messageContainer.classList.add('message_right_container');
+  const messageParagraph = document.createElement('p');
+  messageParagraph.classList.add('message_right_paragraph');
+  messageParagraph.innerText = message;
+  messageContainer.appendChild(messageParagraph);
+
+  return messageContainer;
+}
