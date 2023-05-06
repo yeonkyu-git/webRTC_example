@@ -25,6 +25,8 @@ export const getLocalPreview = () => {
   navigator.mediaDevices.getUserMedia(defaultContraints)
     .then((stream) => {
       ui.updateLocalVideo(stream);
+      ui.showVideoCallButtons();
+      store.setCallState(constants.callState.CALL_AVAILABLE)
       store.setLocalStream(stream);
     }).catch((err) => {
       console.error('error occured when trying to get an access to camera', err);
@@ -84,7 +86,7 @@ const createPeerConnection = () => {
   };
 
   // 자신의 화면을 상대방에게 전달한다.
-  if (connectedUserDetails.callType === constants.callType.VIDEO_PERSONAL_CODE) {
+  if (connectedUserDetails.callType === constants.callType.VIDEO_PERSONAL_CODE || connectedUserDetails.callType == constants.callType.VIDEO_STRANGER) {
     const localStream = store.getState().localStream;
 
     for (const track of localStream.getTracks()) {
@@ -114,6 +116,16 @@ export const sendPreOffer = (callType, calleePersonalCode) => {
       calleePersonalCode
     }
     ui.showCallingDialog(callingDialogRejectCallHandler); 
+    store.setCallState(constants.callState.CALL_UNAVAILABLE);
+    wss.sendPreOffer(data);
+  }
+
+  if (callType === constants.callType.CHAT_STRANGER || callType === constants.callType.VIDEO_STRANGER) {
+    const data = {
+      callType,
+      calleePersonalCode
+    }
+    store.setCallState(constants.callState.CALL_UNAVAILABLE);
     wss.sendPreOffer(data);
   }
 }
@@ -122,16 +134,28 @@ export const sendPreOffer = (callType, calleePersonalCode) => {
 export const handlePreOffer = (data) => {
   const { callType, callerSocketId } = data;
 
+  if (!checkCallPossibility()) {
+    return sendPreOfferAnswer(constants.preOfferAnswer.CALL_UNAVAILABLE, callerSocketId);
+  }
+
   connectedUserDetails = {
     socketId: callerSocketId,
     callType,
   };
+
+  store.setCallState(constants.callState.CALL_UNAVAILABLE);
 
   if (
     callType === constants.callType.CHAT_PERSONAL_CODE || 
     callType === constants.callType.VIDEO_PERSONAL_CODE
   ) {
     ui.showIncomingCallDialog(callType, acceptCallHandler, rejectCallHandler); // 수락 또는 거절 시 이벤트 함수까지 같이 전달
+  };
+
+  if (callType === constants.callType.CHAT_STRANGER || callType === constants.callType.VIDEO_STRANGER) {
+    createPeerConnection();
+    sendPreOfferAnswer(constants.preOfferAnswer.CALL_ACCEPTED);
+    ui.showCallElements(connectedUserDetails.callType);
   };
 };
 
@@ -146,17 +170,25 @@ const acceptCallHandler = () => {
 // 3-2. Callee가 요청을 거절할 경우 동작하는 함수 
 const rejectCallHandler = () => {
   console.log('call rejected');
+  setIncomingCallSAvailable();
   sendPreOfferAnswer(constants.preOfferAnswer.CALL_REJECTED);
 };
 
 // Caller가 요청했는데, Caller가 Reject할 때 호출됨
 const callingDialogRejectCallHandler =() => {
-  console.log('rejecting the call');
+  const data = {
+    connectedUserSocketId: connectedUserDetails.socketId
+  }
+
+  closePeerConnectionAndResetState();
+  wss.sendUserHangUp(data);
 };
 
-const sendPreOfferAnswer = (preOfferAnswer) => {
+const sendPreOfferAnswer = (preOfferAnswer, callerSocketId = null) => {
+
+  const SocketId = callerSocketId ? callerSocketId : connectedUserDetails.socketId;
   const data = {
-    callerSocketId: connectedUserDetails.socketId,
+    callerSocketId: SocketId,
     preOfferAnswer,
   }
   ui.removeAllDialog();
@@ -170,18 +202,21 @@ export const handlePreOfferAnswer = (data) => {
 
   // 4-1. CALLEE가 접속 중이지 않음 
   if (preOfferAnswer === constants.preOfferAnswer.CALLEE_NOT_FOUND) {
+    setIncomingCallSAvailable();
     ui.showInfoDialog(preOfferAnswer);
     // show dialog that callee has not been found
   }
 
   // 4-2. CALLEE가 다른 용무 중
   if (preOfferAnswer === constants.preOfferAnswer.CALL_UNAVAILABLE) {
+    setIncomingCallSAvailable();
     ui.showInfoDialog(preOfferAnswer);
     // show dialog that callee is not able to connect
   }
 
   // 4-3. CALLEE가 거절함 
   if (preOfferAnswer === constants.preOfferAnswer.CALL_REJECTED) {
+    setIncomingCallSAvailable();
     ui.showInfoDialog(preOfferAnswer);
     // show dialog that call is rejected by the callee 
   }
@@ -282,5 +317,70 @@ export const switchBetweenCameraAndScreenSharing = async (screenSharingActive) =
     } catch (err) {
       console.error('error occured when trying to get screen sharing stream', err);
     }
+  }
+}
+
+// 9. 채팅 및 화상채팅 끊기
+// 9-1. 끊는 사람이 호출
+export const handleHangUp = () => {
+  const data = {
+    connectedUserSocketId: connectedUserDetails.socketId
+  }
+
+  wss.sendUserHangUp(data);
+  closePeerConnectionAndResetState();
+};
+
+// 9-1. 끊는 것을 받는 사람이 호출
+export const handleConnectedUserHangedUp = () => {
+  closePeerConnectionAndResetState();
+};
+
+const closePeerConnectionAndResetState = () => {
+  if (peerConnection) {
+    peerConnection.close();
+    peerConnection = null;
+  }
+
+  // active mic and camera
+  if (connectedUserDetails.callType === constants.callType.VIDEO_PERSONAL_CODE 
+    || connectedUserDetails.callType == constants.callType.VIDEO_STRANGER) {
+
+      store.getState().localStream.getVideoTracks()[0].enabled = true;
+      store.getState().localStream.getAudioTracks()[0].enabled = true;    
+  }
+
+  ui.updateUIAfterHangUp(connectedUserDetails.callType);
+  setIncomingCallSAvailable();
+  connectedUserDetails = null;
+}
+
+
+const checkCallPossibility = (callType) => {
+  const callState = store.getState().callState;
+
+  console.log(callState)
+
+  if (callState === constants.callState.CALL_AVAILABLE) {
+    return true;
+  };
+
+  if (
+    (callType === constants.callType.VIDEO_PERSONAL_CODE || callType === constants.callType.VIDEO_STRANGER) &&
+    callState === constants.callState.CALL_AVAILABLE_ONLY_CHAT
+  ) {
+    return false;
+  }
+
+  return false;
+}
+
+const setIncomingCallSAvailable = () => {
+  const localStream = store.getState().localStream;
+
+  if (localStream) {
+    store.setCallState(constants.callState.CALL_AVAILABLE);
+  } else {
+    store.setCallState(constants.callState.CALL_AVAILABLE_ONLY_CHAT);
   }
 }
