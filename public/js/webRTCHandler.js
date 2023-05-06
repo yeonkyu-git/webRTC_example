@@ -35,10 +35,13 @@ export const getLocalPreview = () => {
 
 // 요청 수락 시 상대방과 Connection  (RTCPeerConnection)
 const createPeerConnection = () => {
-  peerConnection = new RTCPeerConnection(configuration); // 이때 STUN 서버에게 질의함
+  // RTCPeerConnection 객체 생성 및 STUN서버에 질의 (configuration에는 STUN 서버 정보 있음)
+  peerConnection = new RTCPeerConnection(configuration);  
 
-  dataChannel = peerConnection.createDataChannel('chat');
+  // DataChannel 생성 (채팅이나 파일 등을 전달 및 받을 수 있는 채널)
+  dataChannel = peerConnection.createDataChannel('chat'); 
 
+  // DataChannel 을 열어둠. 즉 항시 Data 받을 수 있음
   peerConnection.ondatachannel = (event) => {
     const dataChannel = event.channel;
 
@@ -46,26 +49,26 @@ const createPeerConnection = () => {
       console.log('peer connection is ready to receive data channel messages');
     }
 
-    // Message 받기 
+    // 채팅 Data 받기 
     dataChannel.onmessage = (event) => {
       console.log('message came from data channel');
-      const message = JSON.parse(event.data);
-      ui.appendMessage(message);
+      const message = JSON.parse(event.data);  // 받은 채팅 Data Parsing 
+      ui.appendMessage(message); // 받은 대화를 UI에 뿌려줌
     }
   }
 
 
   // ICE_CANDIDATE 교환 
   peerConnection.onicecandidate = (event) => {
-    console.log('getting ice candidates from stun server');
     if (event.candidate) {
+      console.log("peerConnectiopn.onicecandidate :: Callee & Caller");
+      console.log(event.candidate)
       // send our ice candidates to other peer
       wss.sendDataUsingWebRTCSignaling({
         connectedUserSocketId: connectedUserDetails.socketId, // 다른 사람의 Socket Id 
         type: constants.webRTCSignaling.ICE_CANDIDATE, // ICE_CANDIDATE (SDP 교환)
         candidate: event.candidate, // candidate
       })
-      
     }
   }
 
@@ -78,9 +81,10 @@ const createPeerConnection = () => {
 
   // 상대방의 화면 정보를 전달 받아서, ui에 비디오를 업데이트 한다. 
   const remoteStream = new MediaStream();
-  store.setRemoteStream(remoteStream);
-  ui.updateRemoteVideo(remoteStream);
+  store.setRemoteStream(remoteStream); // 나의 상태 정보 저장소 (store)에 상대방의 화면 정보 저장 
+  ui.updateRemoteVideo(remoteStream); // 상대방 화면을 브라우저에 띄우기 위해 UI Update 
 
+  // Remote Track (상대방 화면)이 등록되면 호출됨
   peerConnection.ontrack = (event) => {
     remoteStream.addTrack(event.track);
   };
@@ -110,6 +114,7 @@ export const sendPreOffer = (callType, calleePersonalCode) => {
     socketId: calleePersonalCode  // Caller가 입력한 Callee Socket Id
   };
 
+  // 특정 Callee에게 요청 
   if (callType === constants.callType.CHAT_PERSONAL_CODE || callType === constants.callType.VIDEO_PERSONAL_CODE) {  // callType이 Chat 또는 Video 일 경우 
     const data = {
       callType,
@@ -120,12 +125,17 @@ export const sendPreOffer = (callType, calleePersonalCode) => {
     wss.sendPreOffer(data);
   }
 
+  // 아무나 요청
   if (callType === constants.callType.CHAT_STRANGER || callType === constants.callType.VIDEO_STRANGER) {
     const data = {
       callType,
       calleePersonalCode
     }
+
+    // 현재 상태를 콜 받을 수 없는 상태로 변경 
     store.setCallState(constants.callState.CALL_UNAVAILABLE);
+
+    // WebSocket을 통해 시그널링 서버에게 Offer 
     wss.sendPreOffer(data);
   }
 }
@@ -134,17 +144,21 @@ export const sendPreOffer = (callType, calleePersonalCode) => {
 export const handlePreOffer = (data) => {
   const { callType, callerSocketId } = data;
 
+  // Callee가 전화를 받을 수 있는 상태인지 확인 
   if (!checkCallPossibility()) {
     return sendPreOfferAnswer(constants.preOfferAnswer.CALL_UNAVAILABLE, callerSocketId);
   }
 
+  // Callee에서도 Caller의 정보를 저장 (socketId)
   connectedUserDetails = {
     socketId: callerSocketId,
     callType,
   };
 
+  // Callee의 현재 상태를 콜 받을 수 없는 상태로 변경 
   store.setCallState(constants.callState.CALL_UNAVAILABLE);
 
+  // 수락할지 안할지에 대한 UI 화면 호출
   if (
     callType === constants.callType.CHAT_PERSONAL_CODE || 
     callType === constants.callType.VIDEO_PERSONAL_CODE
@@ -162,9 +176,9 @@ export const handlePreOffer = (data) => {
 // 3-1. Callee가 요청을 수락할 경우 동작하는 함수 
 const acceptCallHandler = () => {
   console.log('call accepted');
-  createPeerConnection();
+  createPeerConnection(); // RTCConnection을 맺음 
   sendPreOfferAnswer(constants.preOfferAnswer.CALL_ACCEPTED); // Caller에게 수락했다고 전달함
-  ui.showCallElements(connectedUserDetails.callType);
+  ui.showCallElements(connectedUserDetails.callType); // 채팅 시 필요한 UI 호출 
 };
 
 // 3-2. Callee가 요청을 거절할 경우 동작하는 함수 
@@ -233,6 +247,7 @@ export const handlePreOfferAnswer = (data) => {
 
 // 5. 수락을 받은 Caller는 Callee에게 RTCPeerConnection 관련 SDP를 전달
 const sendWebRTCOffer = async () => {
+  console.log("sendWebRTCOffer ::  Caller");
   const offer = await peerConnection.createOffer();
   await peerConnection.setLocalDescription(offer);
   wss.sendDataUsingWebRTCSignaling({
@@ -247,6 +262,7 @@ export const handlerWebRTCOffer = async (data) => {
   await peerConnection.setRemoteDescription(data.offer);
   const answer = await peerConnection.createAnswer();
   await peerConnection.setLocalDescription(answer);
+
   wss.sendDataUsingWebRTCSignaling({
     connectedUserSocketId: connectedUserDetails.socketId,
     type: constants.webRTCSignaling.ANSWER,
@@ -262,6 +278,7 @@ export const handleWebRTCAnswer = async (data) => {
 
 // 8. WebRTCSignaling. OFFER 및 ANSWER를 완료 한 후 ICE CANDIDATE정보를 저장
 export const handleWebRTCCandidate = async (data) => {
+  console.log("handleWebRTCCandidate :: ICE Candidates 정보 받음");
   try {
     await peerConnection.addIceCandidate(data.candidate);
   } catch (err) {
